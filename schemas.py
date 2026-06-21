@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional,List
 from datetime import date
 
 
@@ -26,7 +26,7 @@ class TokenResponse(BaseModel):
 
 
 # ── EXPENSE SCHEMAS ───────────────────────────────────
-
+    
 class ExpenseCreate(BaseModel):
     title: str
     amount: float
@@ -52,6 +52,13 @@ class ExpenseResponse(BaseModel):
     receipt_path: Optional[str] = None
     owner_username: str
     date: date
+
+class PaginatedExpenseResponse(BaseModel):
+    total: int
+    page: int
+    limit: int
+    data: List[ExpenseResponse]
+
 
     class Config:
         from_attributes = True

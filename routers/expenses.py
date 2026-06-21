@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Expense
-from schemas import ExpenseCreate, ExpenseUpdate, ExpenseResponse
+from schemas import ExpenseCreate, ExpenseUpdate, ExpenseResponse,PaginatedExpenseResponse
 from auth import get_current_user
 from exceptions import ResourceNotFoundException
 
@@ -56,12 +56,24 @@ def create_expense(
 
 # ── READ ALL ──────────────────────────────────────────
 
-@router.get("/", response_model=List[ExpenseResponse])
+@router.get("/", response_model=PaginatedExpenseResponse)
 def get_all_expenses(
+    page: int =1,
+    limit: int=10,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
+    
 ):
-    return db.query(Expense).filter(Expense.owner_username == current_user).all()
+    query= db.query(Expense).filter(Expense.owner_username == current_user)
+    total=query.count()
+    expenses=query.offset((page-1)*limit).limit(limit).all()
+
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "data": expenses
+    }
 
 
 # ── FILTER ────────────────────────────────────────────
