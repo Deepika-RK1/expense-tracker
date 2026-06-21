@@ -66,14 +66,20 @@ async def duplicate_handler(request: Request, exc: DuplicateResourceException):
 
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
+    errors = []
+    for error in exc.errors():
+        errors.append({
+            "field": " → ".join(str(loc) for loc in error["loc"]),
+            "message": error["msg"].replace("Value error, ", "")
+        })
+
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "error": "Validation Error",
-            "detail": exc.errors()
+            "detail": errors
         }
     )
-
 
 @app.exception_handler(Exception)
 async def global_error_handler(request: Request, exc: Exception):
