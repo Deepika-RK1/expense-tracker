@@ -97,7 +97,7 @@ expense-tracker/
 
 ### 1. Clone the repo
 bash
-git clone https://github.com/Deepika-XXXX/expense-tracker.git
+git clone https://github.com/Deepika-RK1/expense-tracker.git
 cd expense-tracker
 
 
