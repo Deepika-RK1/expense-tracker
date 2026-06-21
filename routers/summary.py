@@ -53,3 +53,50 @@ def summary_recent(
         .limit(5)
         .all()
     )
+
+# routers/summary.py — add this endpoint
+from sqlalchemy import extract
+
+@router.get("/monthly")
+def monthly_report(
+    year: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user)
+):
+    results = (
+        db.query(
+            extract("month", Expense.date).label("month"),
+            func.sum(Expense.amount).label("total")
+        )
+        .filter(
+            Expense.owner_username == current_user,
+            extract("year", Expense.date) == year
+        )
+        .group_by(extract("month", Expense.date))
+        .all()
+    )
+
+    month_names = {
+        1: "January", 2: "February", 3: "March",
+        4: "April", 5: "May", 6: "June",
+        7: "July", 8: "August", 9: "September",
+        10: "October", 11: "November", 12: "December"
+    }
+
+    breakdown = {
+        month_names[int(month)]: round(total, 2)
+        for month, total in results
+    }
+
+    if not breakdown:
+        return {"year": year, "monthly_breakdown": {}, "total_for_year": 0.0}
+
+    highest = max(breakdown, key=breakdown.get)
+    total_for_year = round(sum(breakdown.values()), 2)
+
+    return {
+        "year": year,
+        "monthly_breakdown": breakdown,
+        "highest_spending_month": highest,
+        "total_for_year": total_for_year
+    }
