@@ -16,7 +16,7 @@ A production-grade REST API for tracking personal expenses, built with *FastAPI*
 - 📄 Pagination on expenses list
 - 📊 Spending summary by category
 - 📅 Monthly spending report with highest spending month
-- ✅ Input validation (amount, title, date)
+- ✅ Input validation (amount, title, date, category) on create, PUT and PATCH
 - ⚡ Background task logging
 - 🌐 CORS middleware
 - 📋 Request logging with response time headers
@@ -57,6 +57,20 @@ Added Pydantic field validators to enforce business rules before data hits the d
 - Amount must be greater than 0
 - Title cannot be empty or blank
 - Date cannot be in the future
+- Category must be one of the allowed values (an invalid category used to crash the API with a 500)
+- The same rules apply to PATCH, and required fields can't be set to null
+- `page` ≥ 1 and `limit` between 1 and 100
+
+### 4. Bug fixes and hardening
+- Registering with an existing email returns a clear 400 instead of a 500
+- Receipt uploads check the file's real bytes (JPEG/PNG), not just the client's content type
+- Replacing or deleting an expense removes its old receipt image from disk
+- Expenses are returned newest first, so pagination is stable
+- `from_date` after `to_date` returns a 400; monthly report validates the year
+- JWT secret key read from the `SECRET_KEY` environment variable instead of being hardcoded
+
+### 5. Automated tests
+17 pytest tests covering auth, validation, CRUD, pagination, filters, summaries, user isolation and receipt uploads.
 
 ---
 
@@ -70,6 +84,7 @@ Added Pydantic field validators to enforce business rules before data hits the d
 | python-jose | JWT tokens |
 | passlib + bcrypt | Password hashing |
 | Pydantic v2 | Data validation + field validators |
+| pytest | Automated API tests |
 | Uvicorn | ASGI server |
 
 ---
@@ -84,6 +99,7 @@ expense-tracker/
 ├── schemas.py        ← Pydantic request/response models + validators
 ├── auth.py           ← JWT logic, password hashing
 ├── exceptions.py     ← custom exception classes
+├── tests/            ← pytest test suite
 ├── uploads/          ← receipt images stored here
 └── routers/
     ├── auth.py       ← POST /users/register, POST /users/login
@@ -113,14 +129,20 @@ bash
 pip install -r requirements.txt
 
 
-### 4. Run the server
+### 4. Set a secret key and run the server
 bash
+export SECRET_KEY="any-long-random-string"   # Windows: set SECRET_KEY=any-long-random-string
 uvicorn main:app --reload
 
 
 ### 5. Open API docs
 
 http://localhost:8000/docs
+
+### 6. Run the tests
+bash
+pip install pytest httpx
+pytest -q
 
 
 ---
@@ -162,8 +184,9 @@ http://localhost:8000/docs
 | amount | Must be greater than 0 |
 | title | Cannot be empty or blank |
 | date | Cannot be in the future |
+| page / limit | page ≥ 1, limit 1–100 |
 | category | Must be one of: food, transport, health, entertainment, other |
-| Receipt file | Must be JPEG or PNG, max 5MB |
+| Receipt file | Must really be a JPEG or PNG (checked by file bytes), max 5MB |
 
 ---
 
