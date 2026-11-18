@@ -1,5 +1,5 @@
 venv/
-_pycache_/
+__pycache__/
 *.pyc
 *.pyo
 app.db
@@ -7,3 +7,4 @@ uploads/
 .env
 .DS_Store
 *.db
+.pytest_cache/

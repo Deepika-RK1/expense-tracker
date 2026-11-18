@@ -4,11 +4,11 @@ import time
 from typing import List, Optional
 from datetime import date
 
-from fastapi import APIRouter, HTTPException, File, UploadFile, status, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, File, UploadFile, status, Depends, BackgroundTasks, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Expense
+from models import Expense, CategoryEnum
 from schemas import ExpenseCreate, ExpenseUpdate, ExpenseResponse,PaginatedExpenseResponse
 from auth import get_current_user
 from exceptions import ResourceNotFoundException
@@ -18,8 +18,28 @@ router = APIRouter(
     tags=["Expenses"]
 )
 
-UPLOAD_DIR = "uploads"
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+MAX_RECEIPT_BYTES = 5 * 1024 * 1024
+
+
+def detect_image_type(contents: bytes) -> Optional[str]:
+    """Return 'jpg' or 'png' from the file's magic bytes, else None"""
+    if contents.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if contents.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    return None
+
+
+def remove_file(path: Optional[str]) -> None:
+    """Delete a stored receipt file if it exists"""
+    if path and os.path.isfile(path):
+        try:
+            os.remove(path)
+        except OSError as e:
+            print(f"⚠️ Could not delete {path}: {e}")
 
 
 # ── BACKGROUND TASK ───────────────────────────────────
@@ -58,15 +78,18 @@ def create_expense(
 
 @router.get("/", response_model=PaginatedExpenseResponse)
 def get_all_expenses(
-    page: int =1,
-    limit: int=10,
+    page: int = Query(1, ge=1, description="Page number, starting at 1"),
+    limit: int = Query(10, ge=1, le=100, description="Items per page (1-100)"),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
-    
 ):
-    query= db.query(Expense).filter(Expense.owner_username == current_user)
-    total=query.count()
-    expenses=query.offset((page-1)*limit).limit(limit).all()
+    query = (
+        db.query(Expense)
+        .filter(Expense.owner_username == current_user)
+        .order_by(Expense.date.desc(), Expense.id.desc())   # stable order across pages
+    )
+    total = query.count()
+    expenses = query.offset((page - 1) * limit).limit(limit).all()
 
     return {
         "total": total,
@@ -80,12 +103,18 @@ def get_all_expenses(
 
 @router.get("/filter", response_model=List[ExpenseResponse])
 def filter_expenses(
-    category: Optional[str] = None,
+    category: Optional[CategoryEnum] = None,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="from_date cannot be after to_date"
+        )
+
     query = db.query(Expense).filter(Expense.owner_username == current_user)
 
     if category:
@@ -95,7 +124,7 @@ def filter_expenses(
     if to_date:
         query = query.filter(Expense.date <= to_date)
 
-    return query.all()
+    return query.order_by(Expense.date.desc(), Expense.id.desc()).all()
 
 
 # ── READ ONE ──────────────────────────────────────────
@@ -186,8 +215,10 @@ def delete_expense(
     if not expense:
         raise ResourceNotFoundException(resource="Expense", id=expense_id)
 
+    receipt_path = expense.receipt_path
     db.delete(expense)
     db.commit()
+    remove_file(receipt_path)   # don't leave orphaned receipt images on disk
     return None
 
 
@@ -217,22 +248,33 @@ async def upload_receipt(
 
     contents = await file.read()
 
-    if len(contents) > 5 * 1024 * 1024:
+    if len(contents) > MAX_RECEIPT_BYTES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File too large. Maximum size is 5MB."
         )
 
-    extension = file.filename.split(".")[-1]
+    # The content type comes from the client, so also check the real bytes,
+    # and take the extension from them instead of the user's filename
+    extension = detect_image_type(contents)
+    if extension is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is not a valid JPEG or PNG image."
+        )
+
     unique_name = f"{uuid.uuid4()}.{extension}"
     file_path = os.path.join(UPLOAD_DIR, unique_name)
 
     with open(file_path, "wb") as f:
         f.write(contents)
 
+    old_receipt = expense.receipt_path
     expense.receipt_path = file_path
     db.commit()
     db.refresh(expense)
+    if old_receipt and old_receipt != file_path:
+        remove_file(old_receipt)   # replacing a receipt removes the old image
 
     return {
         "message": "Receipt uploaded successfully",

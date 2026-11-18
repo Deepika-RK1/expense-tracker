@@ -1,7 +1,7 @@
 from typing import List, Dict
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, extract
 
 from database import get_db
 from models import Expense
@@ -25,7 +25,10 @@ def summary_by_category(
         .group_by(Expense.category)
         .all()
     )
-    return {category: round(total, 2) for category, total in results}
+    return {
+        (category.value if hasattr(category, "value") else str(category)): round(total, 2)
+        for category, total in results
+    }
 
 
 @router.get("/total")
@@ -54,12 +57,9 @@ def summary_recent(
         .all()
     )
 
-# routers/summary.py — add this endpoint
-from sqlalchemy import extract
-
 @router.get("/monthly")
 def monthly_report(
-    year: int,
+    year: int = Query(..., ge=1900, le=2100, description="Year, e.g. 2026"),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
@@ -73,6 +73,7 @@ def monthly_report(
             extract("year", Expense.date) == year
         )
         .group_by(extract("month", Expense.date))
+        .order_by(extract("month", Expense.date))
         .all()
     )
 
@@ -89,7 +90,13 @@ def monthly_report(
     }
 
     if not breakdown:
-        return {"year": year, "monthly_breakdown": {}, "total_for_year": 0.0}
+        # Same shape as the normal response so clients don't need a special case
+        return {
+            "year": year,
+            "monthly_breakdown": {},
+            "highest_spending_month": None,
+            "total_for_year": 0.0
+        }
 
     highest = max(breakdown, key=breakdown.get)
     total_for_year = round(sum(breakdown.values()), 2)

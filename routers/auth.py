@@ -20,6 +20,10 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     if existing:
         raise DuplicateResourceException(message="Username already taken")
 
+    # email is UNIQUE in the DB — check first instead of crashing with a 500
+    if db.query(User).filter(User.email == user.email).first():
+        raise DuplicateResourceException(message="Email already registered")
+
     new_user = User(
         username=user.username,
         email=user.email,
@@ -41,7 +45,8 @@ def login(
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password"
+            detail="Invalid username or password",
+            headers={"WWW-Authenticate": "Bearer"}
         )
 
     token = create_access_token(data={"sub": user.username})

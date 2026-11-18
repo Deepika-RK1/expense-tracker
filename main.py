@@ -1,4 +1,5 @@
 import time
+import logging
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -9,6 +10,8 @@ from routers import auth, expenses, summary
 from exceptions import ResourceNotFoundException, DuplicateResourceException
 
 Base.metadata.create_all(bind=engine)
+
+logger = logging.getLogger("expense_tracker")
 
 app = FastAPI(
     title="Expense Tracker API",
@@ -21,7 +24,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,   # auth uses a Bearer header, not cookies
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -74,7 +77,7 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
         })
 
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=422,
         content={
             "error": "Validation Error",
             "detail": errors
@@ -83,6 +86,7 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 @app.exception_handler(Exception)
 async def global_error_handler(request: Request, exc: Exception):
+    logger.exception(f"Unhandled error on {request.method} {request.url.path}: {exc}")
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
